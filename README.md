@@ -1,16 +1,20 @@
 # 拼DDD · 创作者编辑器
 
+**简体中文** | [English](README.en.md)
+
 **By the Double One DD 万元户**
 
 基于官方 [Three.js Editor r186](https://github.com/mrdoob/three.js/tree/r186/editor) 定制的中文 3D 场景拼装工具。拖入模型、自由摆放或吸附堆叠，再保存项目或导出 Blender 坐标。原生 JavaScript + 本地 Three.js，Mac / iPad 容器使用 SwiftUI + WKWebView，编辑主流程离线运行。
 
+当前 App 界面为简体中文；项目说明提供中文与英文两个版本。
+
 [下载 Mac 安装包](https://github.com/wangyinhe3939/PinDDD/releases) · [MIT 许可](LICENSE)
 
-![拼DDD 安装盘背景](Packaging/background.png)
+![拼DDD · 把灵感，拼成场景。 / PinDDD · Build scenes. Piece by piece.](assets/promotion.png)
 
 ## 安装与使用
 
-- **Mac：** macOS 14 或更高版本，Apple Silicon / Intel。下载 Release 中的「拼DDD.dmg」，打开后将 PinDDD 拖到 Applications。
+- **Mac：** macOS 14 或更高版本，Apple Silicon / Intel。下载 Release 中的 PinDDD.dmg（显示名称「拼DDD.dmg」），打开后将 PinDDD 拖到 Applications。
 - **签名状态：** 当前是本机 ad-hoc 签名的预览版，尚无 Developer ID 和 Apple 公证。macOS 可能阻止首次打开；核实下载来源后按 [Apple 官方说明](https://support.apple.com/en-us/102445) 操作，或自行从源码构建。
 - **iPad / iPhone：** iOS / iPadOS 17 或更高版本。提供原生工程，需要在 Xcode 选择自己的开发团队和 Bundle Identifier 后运行；不公开分发包含个人设备信息的开发签名 App。真机安装与性能尚未完成验收。
 
@@ -74,7 +78,7 @@ NODE_PATH=<已安装的模块目录> python3 scripts/run.py -- node Tests/editor
 NODE_PATH=<已安装的模块目录> python3 scripts/run.py -- node Tests/free-move.cjs
 ```
 
-只读挂载安装盘后，可用打包环境的 Python 执行 Tests/package.py <挂载点> <原始App路径>，检查 Finder 布局、背景引用、链接、文件哈希和签名。
+只读挂载安装盘后，可用打包环境的 Python 执行 `Tests/package.py <挂载点> <原始App路径>`，检查 Finder 布局、背景引用、链接、文件哈希和签名。
 
 Tests 还包含交互、触控、相机、导航、变换、保存、导入和原生 WKWebView 检查。系统检查不等于真实 iPad、iCloud 文件面板或大型复杂场景的体验保证。
 
