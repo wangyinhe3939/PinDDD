@@ -1,0 +1,4 @@
+.build_tmp/
+.DS_Store
+outputs/
+xcuserdata/

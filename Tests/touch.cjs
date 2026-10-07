@@ -1,0 +1,91 @@
+const assert = require('node:assert/strict');
+const path = require('node:path');
+const {spawn} = require('node:child_process');
+const {chromium} = require('playwright');
+const root=path.resolve(__dirname,'..');
+(async()=>{
+ const server=spawn('python3',['serve.py','--port','0'],{cwd:root,stdio:['ignore','pipe','pipe']});
+ let browser;
+ try {
+  const origin=await new Promise((resolve,reject)=>{server.stdout.on('data',d=>{const m=String(d).match(/http:\/\/127\.0\.0\.1:\d+/);if(m)resolve(m[0]);});server.on('error',reject);});
+  browser=await chromium.launch({channel:'chrome',headless:true,timeout:6000,args:['--enable-unsafe-swiftshader']});
+  const page=await browser.newPage({viewport:{width:1194,height:834},hasTouch:true,isMobile:true});page.setDefaultTimeout(1800);
+  const errors=[];page.on('pageerror',e=>errors.push(e.message));page.on('console',m=>{if(m.type()==='error')errors.push(m.text());});
+  await page.goto(origin+'/editor/',{waitUntil:'commit'});
+  await page.waitForFunction(()=>window.editor?.placement&&editor.session&&!editor.session.loading&&document.querySelector('#viewport canvas'),null,{timeout:6000});
+  await page.evaluate(()=>{
+   const box=new THREE.Mesh(new THREE.BoxGeometry(1,1,1),new THREE.MeshStandardMaterial());box.name='touch-box';box.position.y=.5;editor.addObject(box);
+   editor.camera.position.set(6,8,10);editor.controls.center.set(0,0,0);editor.camera.lookAt(0,0,0);editor.signals.cameraChanged.dispatch(editor.camera);
+   window.frames=0;editor.signals.sceneRendered.add(()=>window.frames++);
+  });
+  await page.waitForTimeout(250);assert(await page.evaluate(()=>window.frames)>3,'rendering continues while idle');
+  const cdp=await page.context().newCDPSession(page);
+  const touch=(type,points)=>cdp.send('Input.dispatchTouchEvent',{type,touchPoints:points.map((p,i)=>({id:p.id??i,x:p.x,y:p.y,radiusX:3,radiusY:3,force:1}))});
+  const project=xyz=>page.evaluate(xyz=>{const r=document.querySelector('#viewport canvas').getBoundingClientRect(),v=new THREE.Vector3(...xyz).project(editor.camera);return{x:r.x+(v.x+1)*r.width/2,y:r.y+(1-v.y)*r.height/2};},xyz);
+  const tap=async p=>{await touch('touchStart',[p]);await touch('touchEnd',[]);};
+  const camera=()=>page.evaluate(()=>editor.camera.position.toArray());
+  const initial=await camera();
+  await touch('touchStart',[{x:470,y:260}]);await touch('touchMove',[{x:540,y:285}]);await touch('touchEnd',[]);
+  assert.notDeepEqual(await camera(),initial,'blank one-finger orbit');assert.equal(await page.evaluate(()=>editor.placement.object),null);
+  let p=await project([0,.5,0]);await tap(p);assert.equal(await page.evaluate(()=>editor.placement.object?.name),'touch-box');
+  const before=await page.evaluate(()=>editor.placement.object.position.toArray());
+  const center=await page.evaluate(()=>editor.controls.center.toArray());
+  const distance=await page.evaluate(()=>editor.camera.position.distanceTo(editor.controls.center));
+  await touch('touchStart',[{x:400,y:300},{x:520,y:300}]);
+  await touch('touchMove',[{x:400,y:325},{x:590,y:325}]);
+  await touch('touchEnd',[]);await page.waitForTimeout(180);
+  assert.notDeepEqual(await page.evaluate(()=>editor.controls.center.toArray()),center,'two fingers pan');
+  assert(await page.evaluate(()=>editor.camera.position.distanceTo(editor.controls.center))<distance,'pinch out zooms in');
+  assert.deepEqual(await page.evaluate(()=>editor.placement.object.position.toArray()),before,'navigation freezes grabbed model');
+  p=await project([1,0,0]);await touch('touchStart',[p]);await touch('touchMove',[{x:p.x+20,y:p.y+10}]);await touch('touchEnd',[]);
+  assert(await page.evaluate(()=>!!editor.placement.object),'drag previews without accidental drop');
+  await page.getByRole('button',{name:'旋转 15°',exact:true}).tap();
+  assert(Math.abs(await page.evaluate(()=>editor.placement.object.rotation.y)-Math.PI/12)<1e-6);
+  p=await project([1,0,0]);await tap(p);assert.equal(await page.evaluate(()=>editor.placement.object),null,'tap places');
+  p=await page.evaluate(()=>{const v=new THREE.Box3().setFromObject(editor.scene.getObjectByName('touch-box')).getCenter(new THREE.Vector3()).project(editor.camera),r=document.querySelector('#viewport canvas').getBoundingClientRect();return{x:r.x+(v.x+1)*r.width/2,y:r.y+(1-v.y)*r.height/2};});
+  await touch('touchStart',[p]);await page.waitForTimeout(540);assert(await page.getByRole('menu',{name:'模型操作'}).isVisible());await touch('touchEnd',[]);
+  assert.equal(await page.evaluate(()=>editor.placement.object),null,'long press does not grab');
+  await page.getByRole('menuitem',{name:'锁定位置',exact:true}).tap();assert(await page.evaluate(()=>editor.scene.getObjectByName('touch-box').userData.isLocked));
+  console.log('PASS: trusted touch tap/drag/long press, simultaneous pan/pinch, hold preservation, rotate button, lock menu and continuous idle rendering');
+  // Floating navigation uses trusted touch pointers, independent of canvas placement.
+  for (const mode of ['pan','zoom']) {
+   const r=await page.locator(`[data-nav=${mode}]`).boundingBox(),p={x:r.x+r.width/2,y:r.y+r.height/2};
+   const previous=await camera();
+   await touch('touchStart',[p]);await touch('touchMove',[{x:p.x+30,y:p.y-35}]);await touch('touchEnd',[]);await page.waitForTimeout(100);
+   assert.notDeepEqual(await camera(),previous,mode+' navigation button accepts finger drag');
+  }
+  await page.locator('[data-axis="+Y"]').tap();
+  await page.waitForFunction(()=>editor.camera.position.clone().sub(editor.controls.center).normalize().y>1-1e-9);
+  const gyro=await page.locator('#viewHelper').boundingBox(),gp={x:gyro.x+64,y:gyro.y+8};
+  await touch('touchStart',[gp]);await touch('touchMove',[{x:gp.x-40,y:gp.y-50}]);await touch('touchEnd',[]);
+  assert(await page.evaluate(()=>editor.camera.position.clone().sub(editor.controls.center).normalize().y<0.9999),'gyro touch drag orbits away from top view');
+  console.log('PASS: finger drag pan/zoom, gyro face tap and orbit drag');
+  const glb=await page.evaluate(async()=>{const {GLTFExporter}=await import('../examples/jsm/exporters/GLTFExporter.js');const bytes=await new GLTFExporter().parseAsync(new THREE.Mesh(new THREE.BoxGeometry(),new THREE.MeshStandardMaterial()),{binary:true});return Array.from(new Uint8Array(bytes));});
+  const chooserPromise=page.waitForEvent('filechooser');await page.getByRole('button',{name:'+ 导入',exact:true}).tap();
+  const chooser=await chooserPromise;assert(chooser.isMultiple());
+  await chooser.setFiles([{name:'touch.glb',mimeType:'model/gltf-binary',buffer:Buffer.from(glb)}]);
+  await page.getByRole('button',{name:'确定',exact:true}).click();await page.waitForFunction(()=>editor.scene.children.length===2);
+  const result=await page.evaluate(async()=>{
+   Object.defineProperty(navigator,'canShare',{configurable:true,value:()=>true});
+   Object.defineProperty(navigator,'share',{configurable:true,value:async data=>{window.shared=await data.files[0].text();}});
+   await editor.utils.save(new Blob(['{"touch":true}']),'layout.json');
+   window.webkit={messageHandlers:{pinDDD:{postMessage:message=>window.nativeMessage=message}}};
+   await editor.utils.save(new Blob(['{"native":true}']),'scene.json');
+   return {share:JSON.parse(window.shared),native:JSON.parse(atob(window.nativeMessage.base64)),name:window.nativeMessage.filename};
+  });
+  assert.deepEqual(result,{share:{touch:true},native:{native:true},name:'scene.json'});
+  await page.setViewportSize({width:834,height:1194});
+  await page.evaluate(()=>{const o=editor.scene.getObjectByName('touch-box');o.userData.isLocked=false;editor.select(o);editor.placement.grab(o);});
+  const toolbar=await page.locator('#toolbar').boundingBox();
+  assert(toolbar.x>=0&&toolbar.x+toolbar.width<834,'portrait toolbar fits the canvas area');
+  assert(await page.locator('#toolbar button').evaluateAll(nodes=>nodes.every(n=>{const r=n.getBoundingClientRect(),p=n.parentElement.getBoundingClientRect();return r.x>=p.x&&r.right<=p.right+1&&r.bottom<=p.bottom+1;})),'portrait controls wrap without clipping');
+  const scale=await page.evaluate(()=>editor.placement.object.scale.x);
+  await page.getByRole('button',{name:'缩小',exact:true}).tap();assert(Math.abs(await page.evaluate(()=>editor.placement.object.scale.x)-scale*.9)<1e-9);
+  await page.getByRole('button',{name:'取消',exact:true}).tap();
+  const ratio=page.getByLabel('缩放比例（相对当前，%）',{exact:true});await ratio.fill('50');await page.getByRole('button',{name:'应用',exact:true}).tap();
+  assert(Math.abs(await page.evaluate(()=>editor.selected.scale.x)-scale*.5)<1e-9,'touch percentage input scales the whole object');
+  await page.screenshot({path:path.join(root,'.build_tmp/touch-transforms.png')});
+  console.log('PASS: portrait toolbar fits, touch shrink preserves grab, percentage entry works');
+  assert.deepEqual(errors,[]);console.log('PASS: visible batch GLB chooser, web share and native export bridge; console errors=0');
+ } finally {if(browser)await browser.close();server.kill('SIGTERM');}
+})().catch(e=>{console.error(e);process.exitCode=1;});

@@ -1,0 +1,16 @@
+{
+  "name": "Double One DD·万元户",
+  "short_name": "拼DDD",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "icons": [
+    {
+      "src": "./images/icon.png",
+      "type": "image/png",
+      "sizes": "144x144"
+    }
+  ],
+  "background_color": "#181a1d",
+  "theme_color": "#181a1d"
+}
