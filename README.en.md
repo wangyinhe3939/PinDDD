@@ -6,6 +6,12 @@
 
 This preview is ad-hoc signed and not notarized. If macOS blocks the first launch, see [Apple's instructions](https://support.apple.com/en-us/102445).
 
+<p align="center">
+  <a href="assets/features/free-move.png"><img src="assets/features/free-move.png" width="32%" alt="Free Move: Move in screen space, even above the ground."></a>
+  <a href="assets/features/surface-snap.png"><img src="assets/features/surface-snap.png" width="32%" alt="Surface Snap: Snap objects to the ground or another surface."></a>
+  <a href="assets/features/layout-export.png"><img src="assets/features/layout-export.png" width="32%" alt="Layout Export: Export Blender coordinates to continue your work."></a>
+</p>
+
 <details>
 <summary>Usage and development</summary>
 

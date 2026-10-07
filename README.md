@@ -6,6 +6,12 @@
 
 当前为本机签名预览版，尚未公证。首次打开受阻时，请参考 [Apple 说明](https://support.apple.com/en-us/102445)。
 
+<p align="center">
+  <a href="assets/features/free-move.png"><img src="assets/features/free-move.png" width="32%" alt="自由摆放：按画面方向移动物品，也能放到空中。"></a>
+  <a href="assets/features/surface-snap.png"><img src="assets/features/surface-snap.png" width="32%" alt="吸附堆叠：自动贴合地面或物体表面。"></a>
+  <a href="assets/features/layout-export.png"><img src="assets/features/layout-export.png" width="32%" alt="布局导出：导出 Blender 坐标，继续完成创作。"></a>
+</p>
+
 <details>
 <summary>使用与开发</summary>
 
