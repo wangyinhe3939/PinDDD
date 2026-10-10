@@ -14,11 +14,25 @@ struct ExportFile: FileDocument {
 
 #if os(macOS)
 @MainActor final class AppDelegate: NSObject, NSApplicationDelegate {
-    var pendingURLs: [URL] = []
-    var model: WebController? { didSet { if let url = pendingURLs.last { pendingURLs = []; Task { await model?.openProject(url) } } } }
-    func application(_ application: NSApplication, open urls: [URL]) {
-        guard let model else { pendingURLs = urls; return }
-        if let url = urls.last { Task { await model.openProject(url) } }
+    var showEditor: (() -> Void)?
+    private var pendingOpens: [([URL], (Bool) -> Void)] = []
+    var model: WebController? {
+        didSet {
+            guard let model else { return }
+            let requests = pendingOpens; pendingOpens.removeAll()
+            for (urls, completion) in requests { model.openExternalFiles(urls, completion: completion) }
+        }
+    }
+    private func open(_ urls: [URL], completion: @escaping (Bool) -> Void = { _ in }) {
+        showEditor?()
+        if let model { model.openExternalFiles(urls, completion: completion) }
+        else { pendingOpens.append((urls, completion)) }
+    }
+    func application(_ application: NSApplication, open urls: [URL]) { open(urls) }
+    func application(_ application: NSApplication, openFiles filenames: [String]) {
+        open(filenames.map { URL(fileURLWithPath: $0) }) { success in
+            application.reply(toOpenOrPrint: success ? .success : .failure)
+        }
     }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let model else { return .terminateNow }
@@ -32,12 +46,20 @@ struct ExportFile: FileDocument {
 @main struct PinDDDApp: App {
     @StateObject private var model = WebController()
     #if os(macOS)
+    @Environment(\.openWindow) private var openWindow
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     #endif
     var body: some Scene {
         #if os(macOS)
         Window("拼DDD", id: "editor") {
-            EditorView(model: model).onAppear { delegate.model = model }
+            EditorView(model: model).onAppear {
+                delegate.model = model
+                delegate.showEditor = {
+                    openWindow(id: "editor")
+                    model.web?.window?.deminiaturize(nil)
+                    model.web?.window?.makeKeyAndOrderFront(nil)
+                }
+            }
         }
         .defaultSize(width: 1280, height: 820)
         .commands {

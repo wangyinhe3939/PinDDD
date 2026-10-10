@@ -31,7 +31,7 @@ function Loader( editor ) {
 
 	};
 
-	this.loadFiles = async function ( files, filesMap ) {
+	this.loadFiles = async function ( files, filesMap, options = {} ) {
 
 		if ( files.length === 1 && files[ 0 ].name.toLowerCase().endsWith( '.pinddd' ) ) {
 			try { await editor.session.load( JSON.parse( await files[ 0 ].text() ) ); return true; }
@@ -152,10 +152,11 @@ function Loader( editor ) {
 
 					console.log( 'Loading', url );
 
-					const url = URL.createObjectURL( resolved.file ); objectURLs.add( url ); return url;
+					const objectURL = URL.createObjectURL( resolved.file ); objectURLs.add( objectURL ); return objectURL;
 
 				}
 
+				if ( options.external && ! /^(data|blob):/i.test( url ) && ! [ '../examples/jsm/libs/basis/basis_transcoder.js', '../examples/jsm/libs/basis/basis_transcoder.wasm' ].includes( url ) ) throw new Error( '缺少本地模型依赖：' + url );
 				return url;
 
 			} );
@@ -164,7 +165,7 @@ function Loader( editor ) {
 
 			for ( let i = 0; i < files.length; i ++ ) {
 
-				if ( scope.cancelled || await scope.loadFile( files[ i ], manager ) === false ) return false;
+				if ( scope.cancelled || await scope.loadFile( files[ i ], manager, options ) === false ) return false;
 
 			}
 
@@ -174,11 +175,11 @@ function Loader( editor ) {
 		} finally { scope.busy = false; }
 	};
 
-	this.loadFile = function ( file, manager ) {
+	this.loadFile = function ( file, manager, options = {} ) {
 
 		const filename = file.name;
 		const extension = filename.split( '.' ).pop().toLowerCase();
-		if ( [ 'glb', 'gltf', 'obj' ].includes( extension ) ) return modelImport.load( file, manager );
+		if ( [ 'glb', 'gltf', 'obj' ].includes( extension ) ) return modelImport.load( file, manager, options );
 
 		const reader = new FileReader();
 		reader.addEventListener( 'progress', function ( event ) {

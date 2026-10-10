@@ -45,8 +45,7 @@ import WebKit
                     window.__phase='fetch import';
                     const bytes=await fetch('pinddd://app/imports/fixture').then(r=>r.arrayBuffer());
                     window.__phase='parse OBJ';
-                    editor.loader.loadFiles([new File([bytes],'native.obj')]);
-                    while(!editor.scene.children.length) await new Promise(r=>setTimeout(r,25));
+                    assert(await editor.loader.loadFiles([new File([bytes],'native.obj')]),'native OBJ import completed');
                     const model=editor.scene.children[0];editor.select(model);
                     const originalScale=model.scale.clone();
                     const ratio=document.querySelector('[aria-label="缩放比例（相对当前，%）"]');
@@ -70,6 +69,23 @@ import WebKit
                     assert(Math.abs(after.clone().project(editor.viewportCamera).y-projected.y-.2)<1e-8,'native screen up');
                     assert(Math.abs(after.applyMatrix4(editor.viewportCamera.matrixWorldInverse).z-depth)<1e-8,'native fixed depth');
                     placement.cancel();placement.setMovementMode('surface');
+                    editor.camera.position.set(10,12,10);editor.camera.lookAt(0,0,0);editor.camera.updateMatrixWorld(true);
+                    const table=new THREE.Mesh(new THREE.BoxGeometry(20,1,20),new THREE.MeshStandardMaterial());table.position.y=.5;editor.addObject(table);
+                    const box=new THREE.Mesh(new THREE.BoxGeometry(2,2,2),new THREE.MeshStandardMaterial());box.position.y=5;editor.addObject(box);
+                    placement.contextAction('ground',box);
+                    assert(Math.abs(new THREE.Box3().setFromObject(box,true).min.y-1)<1e-8,'native table support');
+                    placement.pointer.set(0,0);placement.grab(box);placement.move();
+                    assert(placement.valid&&Math.abs(new THREE.Box3().setFromObject(box,true).min.y-1)<1e-8,'native surface snapping');
+                    placement.cancel();editor.removeObject(box);editor.removeObject(table);
+                    const station=document.querySelector('#asset-station');
+                    assert(station.querySelectorAll('.station-card a').length===4,'asset station presets');
+                    station.querySelector('[aria-label="站点名称"]').value='原生回归';
+                    station.querySelector('[aria-label="站点链接"]').value='https://example.invalid/models';
+                    station.querySelector('form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));
+                    assert(JSON.parse(localStorage.getItem('pinddd.asset-station')).length===5,'asset bookmark persistence');
+                    station.querySelector('.station-card:last-child button').click();
+                    assert(station.querySelectorAll('.station-card a').length===4,'asset bookmark removal');
+
 
                     window.__phase='render';
                     let frames=0;editor.signals.sceneRendered.add(()=>frames++);

@@ -36,6 +36,38 @@ actor ProjectStore {
         if let coordinationError { throw coordinationError }
         return try (result ?? .failure(CocoaError(.fileReadUnknown))).get()
     }
+    // Encode off the main thread, including referenced sibling buffers/textures.
+    func readExternalModel(_ url: URL) throws -> (base64: String, resources: [String: String]) {
+        let data = try readFile(url)
+        var jsonData = data
+        if url.pathExtension.lowercased() == "glb" {
+            guard data.count >= 20, Array(data.prefix(4)) == [0x67, 0x6c, 0x54, 0x46] else {
+                throw CocoaError(.fileReadCorruptFile)
+            }
+            let length = (0..<4).reduce(0) { $0 | (Int(data[12 + $1]) << (8 * $1)) }
+            guard length <= data.count - 20 else { throw CocoaError(.fileReadCorruptFile) }
+            jsonData = data.subdata(in: 20..<(20 + length))
+        }
+        let json = try JSONSerialization.jsonObject(with: jsonData) as? [String: Any]
+        let directory = url.deletingLastPathComponent().resolvingSymlinksInPath().standardizedFileURL
+        var resources: [String: String] = [:]
+        for key in ["buffers", "images"] {
+            for entry in json?[key] as? [[String: Any]] ?? [] {
+                guard let uri = entry["uri"] as? String, !uri.lowercased().hasPrefix("data:"), resources[uri] == nil else { continue }
+                guard let relativePath = uri.removingPercentEncoding,
+                      !relativePath.hasPrefix("/"), !relativePath.contains("\\"),
+                      !uri.contains("?"), !uri.contains("#"), URLComponents(string: uri)?.scheme == nil else {
+                    throw NSError(domain: "PinDDD", code: 2, userInfo: [NSLocalizedDescriptionKey: "模型依赖必须是本地相对路径：" + uri])
+                }
+                let file = directory.appendingPathComponent(relativePath).resolvingSymlinksInPath().standardizedFileURL
+                guard file.path.hasPrefix(directory.path + "/") else {
+                    throw NSError(domain: "PinDDD", code: 2, userInfo: [NSLocalizedDescriptionKey: "请将模型依赖放在模型所在文件夹或其子文件夹：" + uri])
+                }
+                resources[uri] = try readFile(file).base64EncodedString()
+            }
+        }
+        return (data.base64EncodedString(), resources)
+    }
     func writeFile(_ data: Data, to url: URL) throws {
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }

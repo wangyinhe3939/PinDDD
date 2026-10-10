@@ -9,7 +9,7 @@ class ModelImport {
 		if ( ! this.job ) return;
 		this.job.cancelled = true; this.job.reader?.abort(); this.job.dialog?.cancel();
 	}
-	async load( file, manager ) {
+	async load( file, manager, options = {} ) {
 		const job = { cancelled: false }, editor = this.editor;
 		this.job = job;
 		const panel = document.createElement( 'div' ); panel.id = 'import-status'; panel.dataset.placementAction = 'import';
@@ -23,7 +23,7 @@ class ModelImport {
 			label.textContent = file.name + ' · 等待导入';
 			const extension = file.name.split( '.' ).pop().toLowerCase();
 			let asScene = false;
-			if ( extension !== 'obj' ) {
+			if ( extension !== 'obj' && ! options.external ) {
 				job.dialog = new GLTFImportDialog( editor.strings );
 				asScene = ( await job.dialog.show() ).asScene; job.dialog = null;
 			}
@@ -51,6 +51,7 @@ class ModelImport {
 			object.name = file.name;
 			editor.execute( asScene ? new SetSceneCommand( editor, object ) : new AddObjectCommand( editor, object ) );
 			committed = true;
+			if ( options.external ) editor.focus( object );
 			return true;
 		} catch ( error ) {
 			if ( job.cancelled || error.name === 'AbortError' || error.message === 'Import cancelled' ) return false;

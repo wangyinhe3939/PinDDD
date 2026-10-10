@@ -17,7 +17,7 @@ final class WebController: NSObject, ObservableObject, WKScriptMessageHandler, W
     @Published var openingProject = false
     @Published var showRecent = false
     @Published var needsRecovery = false
-    @Published var busy = false
+    @Published var busy = false { didSet { if !busy { drainExternalFiles() } } }
     @Published var documentName = "未命名项目"
     @Published var recentProjects: [URL] = []
     @Published var importStatus: String?
@@ -25,7 +25,10 @@ final class WebController: NSObject, ObservableObject, WKScriptMessageHandler, W
     var web: WKWebView?
     let store: ProjectStore
     let keepsRecentProjects: Bool
-    var importing: Task<Void, Never>?
+    var importing: Task<Bool, Never>? { didSet { if importing == nil { drainExternalFiles() } } }
+    private var editorReady = false
+    private var handlingExternalFiles = false
+    private var externalOpens: [([URL], (Bool) -> Void)] = []
     private var exportCompletion: ((Result<URL, Error>) -> Void)?
     #if os(macOS)
     var closeGuard: WindowCloseGuard?
@@ -39,6 +42,7 @@ final class WebController: NSObject, ObservableObject, WKScriptMessageHandler, W
     var content: LocalContent?
 
     func makeWebView(root: URL? = nil, dataStore: WKWebsiteDataStore? = nil) -> WKWebView {
+        editorReady = false
         let configuration = WKWebViewConfiguration()
         configuration.preferences.isElementFullscreenEnabled = true
         let root = root ?? Bundle.main.resourceURL!
@@ -66,6 +70,7 @@ final class WebController: NSObject, ObservableObject, WKScriptMessageHandler, W
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
         guard message.frameInfo.isMainFrame, message.frameInfo.request.url?.scheme == "pinddd",
               message.frameInfo.request.url?.host == "app", let body = message.body as? [String: Any] else { return }
+        if body["type"] as? String == "editorReady" { editorReady = true; drainExternalFiles() }
         if body["type"] as? String == "import" { openingProject = false; showImport = true }
         if body["type"] as? String == "openProject" { chooseProject() }
         if body["type"] as? String == "saveProject" { Task { await saveProject() } }
@@ -110,13 +115,42 @@ final class WebController: NSObject, ObservableObject, WKScriptMessageHandler, W
             }
         }
     }
+    // Launch Services can deliver several batches before WebKit has restored the scene.
+    func openExternalFiles(_ urls: [URL], completion: @escaping (Bool) -> Void = { _ in }) {
+        externalOpens.append((urls, completion)); drainExternalFiles()
+    }
+    private func drainExternalFiles() {
+        guard web != nil, editorReady, !needsRecovery, !busy, importing == nil, !handlingExternalFiles, !externalOpens.isEmpty else { return }
+        handlingExternalFiles = true
+        Task {
+            defer { handlingExternalFiles = false; drainExternalFiles() }
+            while editorReady, !needsRecovery, !busy, importing == nil, !externalOpens.isEmpty {
+                let (urls, completion) = externalOpens.removeFirst()
+                var succeeded = true
+                for url in urls {
+                    guard url.isFileURL else { succeeded = false; error = "只支持打开本地文件。"; continue }
+                    switch url.pathExtension.lowercased() {
+                    case "glb", "gltf":
+                        if let task = importFiles([url], external: true) {
+                            if await task.value == false { succeeded = false }
+                        } else { succeeded = false }
+                    case "pinddd", "json":
+                        if await openProject(url) == false { succeeded = false }
+                    default:
+                        succeeded = false; error = "不支持打开：" + url.lastPathComponent
+                    }
+                }
+                completion(succeeded)
+            }
+        }
+    }
     func chooseProject() { guard !busy, importing == nil else { return }; openingProject = true; showImport = true }
     func receiveFiles(_ urls: [URL]) {
         if openingProject { if let url = urls.first { Task { await openProject(url) } } }
         else { importFiles(urls) }
     }
-    func openProject(_ url: URL) async {
-        guard !busy, importing == nil else { error = "请先完成当前文件操作。"; return }
+    @discardableResult func openProject(_ url: URL) async -> Bool {
+        guard !busy, importing == nil else { error = "请先完成当前文件操作。"; return false }
         busy = true; defer { busy = false }
         do {
             let data = try await store.readFile(url)
@@ -124,7 +158,8 @@ final class WebController: NSObject, ObservableObject, WKScriptMessageHandler, W
             documentURL = nil
             _ = try await javascript("while (!editor.session) await new Promise(r=>setTimeout(r,25)); await editor.session.load(JSON.parse(text));", arguments: ["text": text])
             documentURL = url; documentName = url.lastPathComponent; remember(url)
-        } catch { self.error = "打开项目失败：" + error.localizedDescription }
+            return true
+        } catch { self.error = "打开项目失败：" + error.localizedDescription; return false }
     }
     func saveProject(asNew: Bool = false) async {
         guard !busy, importing == nil else { error = "请先完成当前文件操作。"; return }
@@ -184,47 +219,62 @@ final class WebController: NSObject, ObservableObject, WKScriptMessageHandler, W
     }
     private func refreshRecents() { recentProjects = (UserDefaults.standard.array(forKey: "recentProjects") as? [Data] ?? []).compactMap(resolveBookmark) }
 
-    func importFiles(_ urls: [URL]) {
-        guard let web, let content, importing == nil, !busy else { return }
+    @discardableResult func importFiles(_ urls: [URL], external: Bool = false) -> Task<Bool, Never>? {
+        guard let web, let content, importing == nil, !busy, !needsRecovery else { return nil }
         importing = Task {
             defer { importing = nil; importStatus = nil }
             for (index, url) in urls.enumerated() {
-                if Task.isCancelled { break }
+                if Task.isCancelled { return false }
                 let id = UUID().uuidString
                 defer { content.imports.removeValue(forKey: id) }
                 do {
                     importStatus = "读取 \(index + 1)/\(urls.count)：\(url.lastPathComponent)"
-                    let data = try await store.readFile(url)
-                    if Task.isCancelled { break }
-                    content.imports[id] = data
-                    importStatus = nil // The web progress bar owns parsing and cancellation from here.
-                    let imported = try await web.callAsyncJavaScript("""
-                        const response = await fetch('pinddd://app/imports/' + id);
-                        if (!response.ok) throw new Error('读取模型失败');
-                        return await editor.loader.loadFiles([new File([await response.blob()], name)]);
-                        """, arguments: ["id": id, "name": url.lastPathComponent], in: nil, contentWorld: .page)
-                    if imported as? Bool == false { break }
-                } catch { if !Task.isCancelled { self.error = "导入 \(url.lastPathComponent) 失败：\(error.localizedDescription)" }; break }
+                    let imported: Any?
+                    if external {
+                        let payload = try await store.readExternalModel(url)
+                        if Task.isCancelled { return false }
+                        importStatus = nil
+                        imported = try await web.callAsyncJavaScript(
+                            "return await window.importExternalGLB(base64Data, filename, resources);",
+                            arguments: ["base64Data": payload.base64, "filename": url.lastPathComponent, "resources": payload.resources],
+                            in: nil, contentWorld: .page)
+                    } else {
+                        let data = try await store.readFile(url)
+                        if Task.isCancelled { return false }
+                        content.imports[id] = data
+                        importStatus = nil // The web progress bar owns parsing and cancellation from here.
+                        imported = try await web.callAsyncJavaScript("""
+                            const response = await fetch('pinddd://app/imports/' + id);
+                            if (!response.ok) throw new Error('读取模型失败');
+                            return await editor.loader.loadFiles([new File([await response.blob()], name)]);
+                            """, arguments: ["id": id, "name": url.lastPathComponent], in: nil, contentWorld: .page)
+                    }
+                    if imported as? Bool != true { return false }
+                } catch { if !Task.isCancelled { self.error = "导入 \(url.lastPathComponent) 失败：\(error.localizedDescription)" }; return false }
             }
+            return !Task.isCancelled
         }
+        return importing
     }
+
     func cancelImport() {
         importing?.cancel()
-        web?.evaluateJavaScript("editor.loader.cancelImport?.()")
+        web?.evaluateJavaScript("window.cancelExternalImport?.(); editor.loader.cancelImport?.()")
         importStatus = "正在取消…"
     }
     func prepareToClose() async -> Bool {
-        guard !busy, importing == nil else { error = "请先完成或取消当前文件操作。"; return false }
+        guard !busy, importing == nil, !handlingExternalFiles, externalOpens.isEmpty else { error = "请先完成或取消当前文件操作。"; return false }
         if needsRecovery || web == nil { return true }
         do { _ = try await javascript("return await editor.session.prepareToClose();"); return true }
         catch { self.error = "尚未安全保存，已保留窗口：" + error.localizedDescription; return false }
     }
     func recover() {
         guard importing == nil else { cancelImport(); return }
-        needsRecovery = false; error = nil
+        editorReady = false; needsRecovery = false; error = nil
         web?.reload()
     }
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        editorReady = false
         importing?.cancel(); importing = nil; importStatus = nil; busy = false
         needsRecovery = true
     }

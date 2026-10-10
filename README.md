@@ -2,7 +2,7 @@
 
 ![PinDDD · 轻量 3D 场景拼装 / A lightweight 3D scene builder.](assets/promotion.png)
 
-**[下载 Mac 版](https://github.com/wangyinhe3939/PinDDD/releases/download/v1.0.0-preview.1/PinDDD.dmg)** · macOS 14+ · Apple Silicon / Intel · 7.2 MB
+**[下载 Mac 版](https://github.com/wangyinhe3939/PinDDD/releases/download/v1.0.0-preview.2/PinDDD.dmg)** · macOS 14+ · Apple Silicon / Intel · 7.23 MB
 
 当前为本机签名预览版，尚未公证。首次打开受阻时，请参考 [Apple 说明](https://support.apple.com/en-us/102445)。
 
@@ -15,6 +15,7 @@
 <details>
 <summary>使用与开发</summary>
 
+- Mac build 12：将 GLB / glTF 拖到 Dock 或 Finder 中的 App 图标，模型加入当前场景并自动聚焦；支持启动时和运行中打开。glTF 的外部纹理与缓冲文件需保留在模型同目录或子目录中，联网资源不加载。
 - 导入 GLB / OBJ 等模型，单击抓起、再次单击放下，Esc 取消；自由移动允许离地，切到吸附模式即可堆叠。
 - 右键拖动转动视角，空格 + 左键平移；[ / ] 等比缩放。物品菜单提供复制、锁定、镜像和删除。
 - ⌘S 保存完整 .pinddd 项目。Blender 布局 JSON 使用米、Z-Up、世界坐标和弧度；只导出摆放数据，模型资源需另存。

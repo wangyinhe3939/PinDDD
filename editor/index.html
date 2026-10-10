@@ -143,6 +143,27 @@
 
 			editor.session = new ProjectSession( editor );
 
+			// Native file-open bridge: preserve the editor's import/history/save pipeline.
+			let externalImportCancelled = false;
+			window.cancelExternalImport = () => { externalImportCancelled = true; };
+			window.importExternalGLB = async function ( base64Data, filename, resources = {} ) {
+				externalImportCancelled = false;
+				await editor.session.ready;
+				if ( editor.session.recoveryError ) throw new Error( '请先恢复或打开项目，再导入模型。' );
+				while ( editor.session.loading || editor.loader.busy ) {
+					if ( externalImportCancelled ) return false;
+					await new Promise( resolve => setTimeout( resolve, 25 ) );
+				}
+				if ( externalImportCancelled ) return false;
+				editor.placement.cancel();
+				const decode = value => Uint8Array.from( atob( value ), character => character.charCodeAt( 0 ) );
+				const file = new File( [ decode( base64Data ) ], filename );
+				const filesMap = Object.create( null );
+				for ( const [ uri, encoded ] of Object.entries( resources ) ) filesMap[ uri ] = new File( [ decode( encoded ) ], uri );
+				return await editor.loader.loadFiles( [ file ], filesMap, { external: true } );
+			};
+			editor.session.ready.then( () => window.webkit?.messageHandlers?.pinDDD?.postMessage( { type: 'editorReady' } ) );
+
 			//
 
 			document.addEventListener( 'dragover', function ( event ) {

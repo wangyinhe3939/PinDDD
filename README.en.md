@@ -2,7 +2,7 @@
 
 ![PinDDD · 轻量 3D 场景拼装 / A lightweight 3D scene builder.](assets/promotion.png)
 
-**[Download for Mac](https://github.com/wangyinhe3939/PinDDD/releases/download/v1.0.0-preview.1/PinDDD.dmg)** · macOS 14+ · Apple Silicon / Intel · 7.2 MB
+**[Download for Mac](https://github.com/wangyinhe3939/PinDDD/releases/download/v1.0.0-preview.2/PinDDD.dmg)** · macOS 14+ · Apple Silicon / Intel · 7.23 MB
 
 This preview is ad-hoc signed and not notarized. If macOS blocks the first launch, see [Apple's instructions](https://support.apple.com/en-us/102445).
 
@@ -15,6 +15,7 @@ This preview is ad-hoc signed and not notarized. If macOS blocks the first launc
 <details>
 <summary>Usage and development</summary>
 
+- Mac build 12: Drop GLB / glTF files onto the app icon in the Dock or Finder to add them to the current scene and focus the camera, whether the app is starting or already running. Keep external glTF textures and buffers beside the model or in its subfolders; remote resources are not loaded.
 - Import GLB / OBJ and other supported formats. Click to pick up or place a model; Esc cancels. Move freely above the ground, or switch to surface snapping to stack models.
 - Right-drag to orbit; Space + left-drag to pan. Use [ / ] for uniform scaling. The object menu provides cloning, locking, mirroring and deletion.
 - ⌘S saves a complete .pinddd project. Blender layout JSON uses meters, Z-up, world coordinates and radians; it exports placement data, so keep model assets separately.
